@@ -5,7 +5,7 @@ target/
 !**/src/test/**/target/
 
 # Ignorer tous les fichiers app.properties dans tous les services
-**/app.properties
+**/application.properties
 
 ### STS ###
 .apt_generated
