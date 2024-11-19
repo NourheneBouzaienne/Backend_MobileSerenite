@@ -3,7 +3,9 @@ package com.app.ClientService.web;
 
 import com.app.ClientService.beans.Contrat;
 import com.app.ClientService.beans.Quittance;
+import com.app.ClientService.dao.EpargneResponseRepository;
 import com.app.ClientService.dao.RoleRepository;
+import com.app.ClientService.dao.SimulateurRepository;
 import com.app.ClientService.dao.UserRepository;
 import com.app.ClientService.models.*;
 import com.app.ClientService.proxies.MiddlewarePortefeuille;
@@ -35,6 +37,8 @@ import javax.mail.internet.MimeMessage;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.File;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -54,6 +58,13 @@ public class ClientController {
 
     @Autowired
     UserRepository userRepository;
+
+    @Autowired
+    SimulateurRepository simulateurRepository;
+
+
+    @Autowired
+    EpargneResponseRepository epargneResponseRepository;
 
     @Autowired
     UserService userService;
@@ -317,29 +328,310 @@ public class ClientController {
         User client = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
 
+        // Associer l'utilisateur à la requête
+        epargneRequest.setUser(client);
+
+        // Persister l'entité EpargnePrimeUniqueRequest (hérite de Simulateur)
+        simulateurRepository.save(epargneRequest);
+
         List<EpargneResponse> epargneSim = simulateurService.getSimulateurVersementPeriodique(epargneRequest);
 
+        for (EpargneResponse response : epargneSim) {
+            response.setSimulateur(epargneRequest);  // Associer la réponse à la simulation
+            epargneResponseRepository.save(response);  // Enregistrer la réponse dans la base de données
+        }
+
+        // Envoyer l'email de devis
+        sendDevisEmailAgenceVP(client, epargneRequest, epargneSim);
 
         return epargneSim;
     }
+
+    // Méthode pour envoyer l'email de devis
+    private void sendDevisEmailAgenceVP(User client, EpargneRequest epargneRequest, List<EpargneResponse> epargneSim) {
+        String emailBody = generateEmailBodyVP(client, epargneRequest, epargneSim);
+
+        // Envoi de l'email
+        try {
+            MimeMessage message = javaMailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(new InternetAddress("no-reply@assurancesami.com"));
+            helper.setTo("nourah.bouzaienne7@gmail.com");
+            helper.setSubject("Nouvelle Simulation AMI Sérénité");
+            helper.setText(emailBody, true);
+            javaMailSender.send(message);
+            System.out.println("Email envoyé avec succès");
+        } catch (Exception e) {
+            System.err.println("Erreur lors de l'envoi de l'email : " + e.getMessage());
+        }
+    }
+
+    // Méthode pour générer le corps de l'email
+    private String generateEmailBodyVP(User client, EpargneRequest epargneRequest, List<EpargneResponse> epargneSim) {
+        String styles = "<style>" +
+                "body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #333; margin: 0; padding: 0; }" +
+                ".container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }" +
+                ".header, .footer { text-align: center; background-color: #1c4191; padding: 15px; color: #fff; border-radius: 5px; }" +
+                ".content { padding: 20px; background-color: #fff; border-radius: 0 0 5px 5px; }" +
+                ".content p { margin: 15px 0; font-size: 16px; line-height: 1.6; }" +
+                ".content strong { color: #ed3026; }" +
+                ".footer p { margin: 0; font-size: 20px; }" +
+                ".footer img { max-width: 150px; height: auto; margin-top: 15px; }" +
+                "@media (max-width: 600px) {" +
+                "    .container { width: 100%; padding: 10px; }" +
+                "    .header h1 { font-size: 22px; }" +
+                "    .content p { font-size: 14px; }" +
+                "    .footer { font-size: 18px; }" +
+                "}" +
+                "</style>";
+
+        String periodicite = "";
+        if ("T".equals(epargneRequest.getFract())) {
+            periodicite = "Trimestriel";
+        } else if ("S".equals(epargneRequest.getFract())) {
+            periodicite = "semestriel";
+        } else if ("A".equals(epargneRequest.getFract())) {
+            periodicite = "Annuel";
+        } else if ("M".equals(epargneRequest.getFract())) {
+            periodicite = "Mensuel";
+        }
+
+        StringBuilder emailBody = new StringBuilder();
+        emailBody.append(styles)
+                .append("<div class='container'>")
+                .append("<div class='header'>")
+                .append("<h1>Devis de Simulation </h1>")
+                .append("</div>")
+                .append("<div class='content'>")
+                .append("<p><strong>Bonjour,</strong></p>")
+                .append("<p>Un client ou un prospect vient de procéder à une simulation d'épargne via notre application mobile et a manifesté son intérêt en téléchargeant un devis.</p>")
+                .append("<p>Merci de prendre contact avec ce client potentiel et l'accompagner dans les étapes suivantes pour la concrétisation du contrat.</p>")
+
+                // Informations du client
+                .append("<h2>Voici les informations du client :</h2>")
+                .append("<ul>")
+                .append("<li><strong>Nom :</strong> ").append(client.getName()).append("</li>")
+                .append("<li><strong>Prénom :</strong> ").append(client.getPrenom()).append("</li>")
+                .append("<li><strong>Email :</strong> ").append(client.getEmail()).append("</li>")
+                .append("<li><strong>Téléphone :</strong> ").append(client.getNumTel()).append("</li>")
+                .append("<li><strong>Date de naissance :</strong> ")
+                .append(formatDate(epargneRequest.getDate_naissance())).append("</li>")
+                .append("</ul>")
+
+                // Informations du contrat
+                .append("<h2>Informations du contrat :</h2>")
+                .append("<ul>")
+                .append("<li><strong>Type de contrat :</strong> ").append("Prime Unique").append("</li>")
+                .append("<li><strong>Durée du contrat :</strong> ").append(epargneRequest.getDurmois() / 12).append(" ans</li>")
+                .append("<li><strong>Périodicité :</strong> ").append(periodicite)
+                .append("<li><strong>Montant versement initial</strong> ").append(epargneRequest.getMntversemment_intial()).append(" DT</li>")
+                .append("<li><strong>Versements réguliers :</strong> ").append(epargneRequest.getMntprime_investi()).append(" DT</li>")
+                .append("<li><strong>Taux d'indexation :</strong> ").append(epargneRequest.get_Tx_indexation()).append("%")
+                .append("<li><strong>Salaire imposable :</strong> ").append(epargneRequest.getSalaire_imposable()).append(" DT</li>")
+                .append("</ul>")
+
+                // Détails de la simulation
+                .append("<h2>Détails de la Simulation :</h2>")
+                .append("<table border='1'>")
+                .append("<tr><th>Année</th><th>Prime Commerciale en DT</th><th>Cumul des Primes en DT</th><th>Epargne Constituée en DT</th><th>Gain Financier en DT</th><th>Gain Fiscal en DT</th></tr>");
+
+        for (EpargneResponse response : epargneSim) {
+            emailBody.append("<tr>")
+                    .append("<td>").append(response.getAnnee()).append("</td>")
+                    .append("<td>").append(response.getPrimeCommercial()).append("</td>")
+                    .append("<td>").append(response.getTotalPrimeCumulee()).append("</td>")
+                    .append("<td>").append(response.getEpargneConstituees()).append("</td>")
+                    .append("<td>").append(response.getGainFinancier()).append("</td>")
+                    .append("<td>").append(response.getGainFiscal()).append("</td>")
+                    .append("</tr>");
+        }
+
+        emailBody.append("</table>")
+                .append("</div>")
+                .append("<div class='footer'>")
+                .append("<p>Cordialement,</p>")
+                .append("<p><strong>AMI Assurances</strong></p>")
+                .append("</div>")
+                .append("</div>");
+
+        return emailBody.toString();
+    }
+
+
 
     @PostMapping("/SimulateurPrimeUnique")
     public List<EpargneResponse> getSimulateurPrimeUnique(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @RequestBody EpargnePrimeUniqueRequest epargneRequest
     ) {
-
+        // Récupérer l'utilisateur connecté
         String username = userDetails.getUsername();
-
         User client = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
 
+        // Associer l'utilisateur à la requête
+        epargneRequest.setUser(client);
+
+        // Persister l'entité EpargnePrimeUniqueRequest (hérite de Simulateur)
+        simulateurRepository.save(epargneRequest);
+
+        // Appeler le service pour effectuer la simulation
         List<EpargneResponse> epargneSim = simulateurService.getSimulateurPrimeUnique(epargneRequest);
 
+        // Persister chaque réponse de la simulation (EpargneResponse) avec le simulateur
+        for (EpargneResponse response : epargneSim) {
+            response.setSimulateur(epargneRequest);  // Associer la réponse à la simulation
+            epargneResponseRepository.save(response);  // Enregistrer la réponse dans la base de données
+        }
 
+        // Envoyer l'email de devis
+        sendDevisEmailAgence(client, epargneRequest, epargneSim);
+
+        // Retourner la liste des réponses simulées
         return epargneSim;
     }
 
+    // Méthode pour envoyer l'email de devis
+    private void sendDevisEmailAgence(User client, EpargnePrimeUniqueRequest epargneRequest, List<EpargneResponse> epargneSim) {
+        String emailBody = generateEmailBody(client, epargneRequest, epargneSim);
+
+        // Envoi de l'email
+        try {
+            MimeMessage message = javaMailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(new InternetAddress("no-reply@assurancesami.com"));
+            helper.setTo("nourah.bouzaienne7@gmail.com");
+            helper.setSubject("Nouvelle Simulation AMI Sérénité");
+            helper.setText(emailBody, true);
+            javaMailSender.send(message);
+            System.out.println("Email envoyé avec succès");
+        } catch (Exception e) {
+            System.err.println("Erreur lors de l'envoi de l'email : " + e.getMessage());
+        }
+    }
+
+    // Méthode pour générer le corps de l'email
+    private String generateEmailBody(User client, EpargnePrimeUniqueRequest epargneRequest, List<EpargneResponse> epargneSim) {
+        String styles = "<style>" +
+                "body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #333; margin: 0; padding: 0; }" +
+                ".container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }" +
+                ".header, .footer { text-align: center; background-color: #1c4191; padding: 15px; color: #fff; border-radius: 5px; }" +
+                ".content { padding: 20px; background-color: #fff; border-radius: 0 0 5px 5px; }" +
+                ".content p { margin: 15px 0; font-size: 16px; line-height: 1.6; }" +
+                ".content strong { color: #ed3026; }" +
+                ".footer p { margin: 0; font-size: 20px; }" +
+                ".footer img { max-width: 150px; height: auto; margin-top: 15px; }" +
+                "@media (max-width: 600px) {" +
+                "    .container { width: 100%; padding: 10px; }" +
+                "    .header h1 { font-size: 22px; }" +
+                "    .content p { font-size: 14px; }" +
+                "    .footer { font-size: 18px; }" +
+                "}" +
+                "</style>";
+
+
+
+        StringBuilder emailBody = new StringBuilder();
+        emailBody.append(styles)
+                .append("<div class='container'>")
+                .append("<div class='header'>")
+                .append("<h1>Devis de Simulation </h1>")
+                .append("</div>")
+                .append("<div class='content'>")
+                .append("<p><strong>Bonjour,</strong></p>")
+                .append("<p>Un client ou un prospect vient de procéder à une simulation d'épargne via notre application mobile et a manifesté son intérêt en téléchargeant un devis.</p>")
+                .append("<p>Merci de prendre contact avec ce client potentiel et l'accompagner dans les étapes suivantes pour la concrétisation du contrat.</p>")
+
+                // Informations du client
+                .append("<h2>Voici les informations du client :</h2>")
+                .append("<ul>")
+                .append("<li><strong>Nom :</strong> ").append(client.getName()).append("</li>")
+                .append("<li><strong>Prénom :</strong> ").append(client.getPrenom()).append("</li>")
+                .append("<li><strong>Email :</strong> ").append(client.getEmail()).append("</li>")
+                .append("<li><strong>Téléphone :</strong> ").append(client.getNumTel()).append("</li>")
+                .append("<li><strong>Date de naissance :</strong> ")
+                .append(formatDate(epargneRequest.getDate_naissance())).append("</li>")
+                .append("</ul>")
+
+                // Informations du contrat
+                .append("<h2>Informations du contrat :</h2>")
+                .append("<ul>")
+                .append("<li><strong>Type de contrat :</strong> ").append("Prime Unique").append("</li>")
+                .append("<li><strong>Durée du contrat :</strong> ").append(epargneRequest.getDurmois() / 12).append(" ans</li>")
+                .append("<li><strong>Montant de la prime investie :</strong> ").append(epargneRequest.getMntprime_investi()).append(" DT</li>")
+                .append("<li><strong>Salaire imposable :</strong> ").append(epargneRequest.getSalaire_imposable()).append(" DT</li>")
+                .append("</ul>")
+
+                // Détails de la simulation
+                .append("<h2>Détails de la Simulation :</h2>")
+                .append("<table border='1'>")
+                .append("<tr><th>Année</th><th>Prime Commerciale en DT</th><th>Cumul des Primes en DT</th><th>Epargne Constituée en DT</th><th>Gain Financier en DT</th><th>Gain Fiscal en DT</th></tr>");
+
+        for (EpargneResponse response : epargneSim) {
+            emailBody.append("<tr>")
+                    .append("<td>").append(response.getAnnee()).append("</td>")
+                    .append("<td>").append(response.getPrimeCommercial()).append("</td>")
+                    .append("<td>").append(response.getTotalPrimeCumulee()).append("</td>")
+                    .append("<td>").append(response.getEpargneConstituees()).append("</td>")
+                    .append("<td>").append(response.getGainFinancier()).append("</td>")
+                    .append("<td>").append(response.getGainFiscal()).append("</td>")
+                    .append("</tr>");
+        }
+
+        emailBody.append("</table>")
+                .append("</div>")
+                .append("<div class='footer'>")
+                .append("<p>Cordialement,</p>")
+                .append("<p><strong>AMI Assurances</strong></p>")
+                .append("</div>")
+                .append("</div>");
+
+        return emailBody.toString();
+    }
+
+    private String formatDate(int dateInt) {
+        // Convertir l'entier en chaîne
+        String dateString = String.valueOf(dateInt);
+        // Parser la chaîne en LocalDate
+        LocalDate dateNaissance = LocalDate.parse(dateString, DateTimeFormatter.ofPattern("yyyyMMdd"));
+        // Formater la date dans le format souhaité
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("d MMMM yyyy"); // Ex : "1er novembre 2024"
+        return dateNaissance.format(formatter);
+    }
+
+
+
+
+
+   /* @PostMapping("/SimulateurPrimeUnique")
+    public List<EpargneResponse> getSimulateurPrimeUnique(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @RequestBody EpargnePrimeUniqueRequest epargneRequest
+    ) {
+        // Récupérer l'utilisateur connecté
+        String username = userDetails.getUsername();
+        User client = userRepository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
+
+        // Associer l'utilisateur à la requête
+        epargneRequest.setUser(client);
+
+        // Persister l'entité EpargnePrimeUniqueRequest (hérite de Simulateur)
+        simulateurRepository.save(epargneRequest);
+
+        // Appeler le service pour effectuer la simulation
+        List<EpargneResponse> epargneSim = simulateurService.getSimulateurPrimeUnique(epargneRequest);
+
+        // Persister chaque réponse de la simulation (EpargneResponse) avec le simulateur
+        for (EpargneResponse response : epargneSim) {
+            response.setSimulateur(epargneRequest);  // Associer la réponse à la simulation
+            epargneResponseRepository.save(response);  // Enregistrer la réponse dans la base de données
+        }
+
+        // Retourner la liste des réponses simulées
+        return epargneSim;
+    }
+*/
 
     @PostMapping("/SimulateurParObjectif")
     public List<EpargneResponse> getSimulateurParObjectif(
@@ -352,10 +644,129 @@ public class ClientController {
         User client = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
 
+        epargneRequest.setUser(client);
+        simulateurRepository.save(epargneRequest);
+
         List<EpargneResponse> epargneSim = simulateurService.getSimulateurParObjectif(epargneRequest);
 
+        for (EpargneResponse response : epargneSim) {
+            response.setSimulateur(epargneRequest);  // Associer la réponse à la simulation
+            epargneResponseRepository.save(response);  // Enregistrer la réponse dans la base de données
+        }
+
+        // Envoyer l'email de devis
+        sendDevisEmailAgenceObjectif(client, epargneRequest, epargneSim);
 
         return epargneSim;
+    }
+
+    // Méthode pour envoyer l'email de devis
+    private void sendDevisEmailAgenceObjectif(User client, EpargneRequestObjectif epargneRequest, List<EpargneResponse> epargneSim) {
+        String emailBody = generateEmailBodyObjectif(client, epargneRequest, epargneSim);
+
+        // Envoi de l'email
+        try {
+            MimeMessage message = javaMailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(new InternetAddress("no-reply@assurancesami.com"));
+            helper.setTo("nourah.bouzaienne7@gmail.com");
+            helper.setSubject("Nouvelle Simulation AMI Sérénité");
+            helper.setText(emailBody, true);
+            javaMailSender.send(message);
+            System.out.println("Email envoyé avec succès");
+        } catch (Exception e) {
+            System.err.println("Erreur lors de l'envoi de l'email : " + e.getMessage());
+        }
+    }
+
+    // Méthode pour générer le corps de l'email
+    private String generateEmailBodyObjectif(User client, EpargneRequestObjectif epargneRequest, List<EpargneResponse> epargneSim) {
+        String styles = "<style>" +
+                "body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #333; margin: 0; padding: 0; }" +
+                ".container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }" +
+                ".header, .footer { text-align: center; background-color: #1c4191; padding: 15px; color: #fff; border-radius: 5px; }" +
+                ".content { padding: 20px; background-color: #fff; border-radius: 0 0 5px 5px; }" +
+                ".content p { margin: 15px 0; font-size: 16px; line-height: 1.6; }" +
+                ".content strong { color: #ed3026; }" +
+                ".footer p { margin: 0; font-size: 20px; }" +
+                ".footer img { max-width: 150px; height: auto; margin-top: 15px; }" +
+                "@media (max-width: 600px) {" +
+                "    .container { width: 100%; padding: 10px; }" +
+                "    .header h1 { font-size: 22px; }" +
+                "    .content p { font-size: 14px; }" +
+                "    .footer { font-size: 18px; }" +
+                "}" +
+                "</style>";
+
+        String periodicite = "";
+        if ("T".equals(epargneRequest.getFract())) {
+            periodicite = "Trimestriel";
+        } else if ("S".equals(epargneRequest.getFract())) {
+            periodicite = "Semestriel";
+        } else if ("A".equals(epargneRequest.getFract())) {
+            periodicite = "Annuel";
+        } else if ("M".equals(epargneRequest.getFract())) {
+            periodicite = "Mensuel";
+        }
+
+
+        StringBuilder emailBody = new StringBuilder();
+        emailBody.append(styles)
+                .append("<div class='container'>")
+                .append("<div class='header'>")
+                .append("<h1>Devis de Simulation </h1>")
+                .append("</div>")
+                .append("<div class='content'>")
+                .append("<p><strong>Bonjour,</strong></p>")
+                .append("<p>Un client ou un prospect vient de procéder à une simulation d'épargne via notre application mobile et a manifesté son intérêt en téléchargeant un devis.</p>")
+                .append("<p>Merci de prendre contact avec ce client potentiel et l'accompagner dans les étapes suivantes pour la concrétisation du contrat.</p>")
+
+                // Informations du client
+                .append("<h2>Voici les informations du client :</h2>")
+                .append("<ul>")
+                .append("<li><strong>Nom :</strong> ").append(client.getName()).append("</li>")
+                .append("<li><strong>Prénom :</strong> ").append(client.getPrenom()).append("</li>")
+                .append("<li><strong>Email :</strong> ").append(client.getEmail()).append("</li>")
+                .append("<li><strong>Téléphone :</strong> ").append(client.getNumTel()).append("</li>")
+                .append("<li><strong>Date de naissance :</strong> ")
+                .append(formatDate(epargneRequest.getDate_naissance())).append("</li>")
+                .append("</ul>")
+
+                // Informations du contrat
+                .append("<h2>Informations du contrat :</h2>")
+                .append("<ul>")
+                .append("<li><strong>Type de contrat :</strong> ").append("Prime Unique").append("</li>")
+                .append("<li><strong>Durée du contrat :</strong> ").append(epargneRequest.getDurmois() / 12).append(" ans</li>")
+                .append("<li><strong>Périodicité :</strong> ").append(periodicite)
+                .append("<li><strong>Montant versement initial</strong> ").append(epargneRequest.getMnt_epargne_constitu()).append(" DT</li>")
+                .append("<li><strong>Salaire imposable :</strong> ").append(epargneRequest.getSalaire_imposable()).append(" DT</li>")
+                .append("</ul>")
+
+                // Détails de la simulation
+                .append("<h2>Détails de la Simulation :</h2>")
+                .append("<table border='1'>")
+                .append("<tr><th>Année</th><th>Prime Commerciale en DT</th><th>Cumul des Primes en DT</th><th>Epargne Constituée en DT</th><th>Gain Financier en DT</th><th>Gain Fiscal en DT</th></tr>");
+
+        for (EpargneResponse response : epargneSim) {
+            emailBody.append("<tr>")
+                    .append("<td>").append(response.getAnnee()).append("</td>")
+                    .append("<td>").append(response.getPrimeCommercial()).append("</td>")
+                    .append("<td>").append(response.getTotalPrimeCumulee()).append("</td>")
+                    .append("<td>").append(response.getEpargneConstituees()).append("</td>")
+                    .append("<td>").append(response.getGainFinancier()).append("</td>")
+                    .append("<td>").append(response.getGainFiscal()).append("</td>")
+                    .append("</tr>");
+        }
+
+        emailBody.append("</table>")
+                .append("</div>")
+                .append("<div class='footer'>")
+                .append("<p>Cordialement,</p>")
+                .append("<p><strong>AMI Assurances</strong></p>")
+                .append("</div>")
+                .append("</div>");
+
+        return emailBody.toString();
     }
 
 
@@ -454,6 +865,151 @@ public class ClientController {
 
     @GetMapping("/sendEmailAgence")
     public ResponseEntity<Object> emailAgence(@AuthenticationPrincipal UserDetailsImpl userDetails, @RequestParam String contractType) {
+        String username = userDetails.getUsername();
+        System.out.println("Username: " + username);
+        String CIN = userDetails.getCin();
+
+        // Récupération du client depuis le repository
+        User client = userRepository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
+
+        // Styles pour l'email
+        String styles = "<style>" +
+                "body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #333; margin: 0; padding: 0; }" +
+                ".container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }" +
+                ".header, .footer { text-align: center; background-color: #1c4191; padding: 15px; color: #fff; border-radius: 5px; }" +
+                ".content { padding: 20px; background-color: #fff; border-radius: 0 0 5px 5px; }" +
+                ".content p { margin: 15px 0; font-size: 16px; line-height: 1.6; }" +
+                ".content strong { color: #ed3026; }" +
+                ".footer p { margin: 0; font-size: 20px; }" +
+                ".footer img { max-width: 150px; height: auto; margin-top: 15px; }" + // Style pour le logo
+                "@media (max-width: 600px) {" +
+                "    .container { width: 100%; padding: 10px; }" +
+                "    .header h1 { font-size: 22px; }" +
+                "    .content p { font-size: 14px; }" +
+                "    .footer { font-size: 18px; }" +
+                "}" +
+                "</style>";
+
+        // Corps de l'email avec du HTML stylisé
+        String emailBody = styles +
+                "<div class='container'>" +
+                "  <div class='header'>" +
+                "    <h1>Nouvelle Simulation AMI Sérénité </h1>" +
+                "  </div>" +
+                "  <div class='content'>" +
+                "    <p><strong>Bonjour,</strong></p>" +
+                "    <p>Un client ou un prospect vient de procéder à une simulation d'épargne via notre application mobile et a manifesté son intérêt en téléchargeant un devis.</p>" +
+                "    <p>Merci de prendre contact avec ce client potentiel et l'accompagner dans les étapes suivantes pour la concrétisation du contrat.</p>" +
+                "    <p><strong>Voici les informations du client :</strong></p>" +
+                "    <ul>" +
+                "      <li><strong>Nom :</strong> " + client.getName() + "</li>" +
+                "      <li><strong>Prénom :</strong> " + client.getPrenom() + "</li>" +
+                "      <li><strong>Email :</strong> " + client.getEmail() + "</li>" +
+                "      <li><strong>Téléphone :</strong> " + client.getNumTel() + "</li>" +
+                "      <li><strong>Type de contrat simulé :</strong> " + contractType + "</li>" +
+                "    </ul>" +
+                "  </div>" +
+                "  <div class='footer'>" +
+                "    <p>Cordialement,</p>" +
+                "    <p><strong>AMI Assurances</strong></p>" +
+                "  </div>" +
+                "</div>";
+
+        // Envoi de l'email
+        try {
+            MimeMessage message = javaMailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(new InternetAddress("no-reply@assurancesami.com"));
+            helper.setTo("nourah.bouzaienne7@gmail.com"); // Destinataire, peut être modifié
+            helper.setSubject("Devis - Simulation d'épargne");
+            helper.setText(emailBody, true); // true pour dire que le contenu est du HTML
+            javaMailSender.send(message);
+            System.out.println("Email envoyé avec succès");
+        } catch (Exception e) {
+            System.err.println("Erreur lors de l'envoi de l'email : " + e.getMessage());
+        }
+
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/sendEmailAgenceRDV")
+    public ResponseEntity<Object> emailAgenceRDV(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @RequestParam String contractType,
+            @RequestParam String additionalInfo) {  // New parameter
+        String username = userDetails.getUsername();
+        System.out.println("Username: " + username);
+        String CIN = userDetails.getCin();
+
+        // Retrieve client from the repository
+        User client = userRepository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
+
+        // Email styles
+        String styles = "<style>" +
+                "body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #333; margin: 0; padding: 0; }" +
+                ".container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }" +
+                ".header, .footer { text-align: center; background-color: #1c4191; padding: 15px; color: #fff; border-radius: 5px; }" +
+                ".content { padding: 20px; background-color: #fff; border-radius: 0 0 5px 5px; }" +
+                ".content p { margin: 15px 0; font-size: 16px; line-height: 1.6; }" +
+                ".content strong { color: #ed3026; }" +
+                ".footer p { margin: 0; font-size: 20px; }" +
+                ".footer img { max-width: 150px; height: auto; margin-top: 15px; }" +
+                "@media (max-width: 600px) {" +
+                "    .container { width: 100%; padding: 10px; }" +
+                "    .header h1 { font-size: 22px; }" +
+                "    .content p { font-size: 14px; }" +
+                "    .footer { font-size: 18px; }" +
+                "}" +
+                "</style>";
+
+        // Email body with HTML styling
+        String emailBody = styles +
+                "<div class='container'>" +
+                "  <div class='header'>" +
+                "    <h1>Prise RDV - AMI Sérénité  </h1>" +
+                "  </div>" +
+                "  <div class='content'>" +
+                "    <p><strong>Bonjour,</strong></p>" +
+                "    <p>Un client ou un prospect vient de procéder à une simulation d'épargne via notre application mobile et a manifesté son intérêt en prenant un RDV.</p>" +
+                "    <p>Merci de prendre contact avec ce client potentiel et l'accompagner dans les étapes suivantes pour la concrétisation du contrat.</p>" +
+                "    <p><strong>Voici les informations du client :</strong></p>" +
+                "    <ul>" +
+                "      <li><strong>Nom :</strong> " + client.getName() + "</li>" +
+                "      <li><strong>Prénom :</strong> " + client.getPrenom() + "</li>" +
+                "      <li><strong>Email :</strong> " + client.getEmail() + "</li>" +
+                "      <li><strong>Téléphone :</strong> " + client.getNumTel() + "</li>" +
+                "      <li><strong>Type de contrat simulé :</strong> " + contractType + "</li>" +
+                "      <li><strong>Date de RDV :</strong> " + additionalInfo + "</li>" +  // Updated label
+                "    </ul>" +
+                "  </div>" +
+                "  <div class='footer'>" +
+                "    <p>Cordialement,</p>" +
+                "    <p><strong>AMI Assurances</strong></p>" +
+                "  </div>" +
+                "</div>";
+
+        // Sending the email
+        try {
+            MimeMessage message = javaMailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(new InternetAddress("no-reply@assurancesami.com"));
+            helper.setTo("nourah.bouzaienne7@gmail.com");  // Recipient, can be modified
+            helper.setSubject("Devis - Simulation d'épargne");
+            helper.setText(emailBody, true);  // true to indicate HTML content
+            javaMailSender.send(message);
+            System.out.println("Email sent successfully");
+        } catch (Exception e) {
+            System.err.println("Error sending email: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok().build();
+    }
+
+
+    @GetMapping("/sendDevisEmailAgence")
+    public ResponseEntity<Object> emailDevisAgence(@AuthenticationPrincipal UserDetailsImpl userDetails, @RequestParam String contractType, @RequestBody EpargnePrimeUniqueRequest simulationRequest,@RequestBody EpargneResponse epargneResponse) {
         String username = userDetails.getUsername();
         System.out.println("Username: " + username);
         String CIN = userDetails.getCin();

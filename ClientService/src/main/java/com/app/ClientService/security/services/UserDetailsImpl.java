@@ -18,11 +18,24 @@ public class UserDetailsImpl implements UserDetails {
 
     private String username;
 
+    private String name;
+
+    private String prenom;
+
     private String email;
 
     private boolean isAuthentificated;
 
     private boolean enabled;
+
+
+    public String getPrenom() {
+        return prenom;
+    }
+
+    public void setPrenom(String prenom) {
+        this.prenom = prenom;
+    }
 
     public String getDateNaissance() {
         return dateNaissance;
@@ -42,10 +55,12 @@ public class UserDetailsImpl implements UserDetails {
 
     private Collection<? extends GrantedAuthority> authorities;
 
-    public UserDetailsImpl(Long id, String username, String email, String password, boolean isAuthentificated, boolean enabled, String cin,String dateNaissance,
+    public UserDetailsImpl(Long id, String username, String name,String prenom, String email, String password, boolean isAuthentificated, boolean enabled, String cin,String dateNaissance,
                            Collection<? extends GrantedAuthority> authorities) {
         this.id = id;
         this.username = username;
+        this.name=name;
+        this.prenom=prenom;
         this.email = email;
         this.password = password;
         this.isAuthentificated = isAuthentificated;
@@ -63,6 +78,8 @@ public class UserDetailsImpl implements UserDetails {
         return new UserDetailsImpl(
                 user.getId(),
                 user.getUsername(),
+                user.getName(),
+                user.getPrenom(),
                 user.getEmail(),
                 user.getPassword(),
                 user.isAuthentificated(),
@@ -102,6 +119,14 @@ public class UserDetailsImpl implements UserDetails {
 
     public boolean isAuthentificated() {
         return isAuthentificated;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     public boolean enabled() {

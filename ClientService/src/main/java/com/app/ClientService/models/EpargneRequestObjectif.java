@@ -1,6 +1,10 @@
 package com.app.ClientService.models;
 
-public class EpargneRequestObjectif {
+
+import javax.persistence.Entity;
+
+@Entity
+public class EpargneRequestObjectif  extends Simulateur{
 
     private int date_Effet;
     private int date_naissance;

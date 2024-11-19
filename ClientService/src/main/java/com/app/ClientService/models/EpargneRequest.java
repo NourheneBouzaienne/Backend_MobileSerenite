@@ -1,6 +1,9 @@
 package com.app.ClientService.models;
 
-public class EpargneRequest {
+import javax.persistence.Entity;
+
+@Entity(name = "VersementsPeriodiquesRequest")
+public class EpargneRequest extends Simulateur {
 
     private int date_Effet;
     private int date_naissance;
@@ -98,5 +101,6 @@ public class EpargneRequest {
     }
 
     public EpargneRequest() {
+        super();
     }
 }

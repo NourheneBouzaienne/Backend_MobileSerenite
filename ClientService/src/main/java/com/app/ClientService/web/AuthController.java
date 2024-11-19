@@ -414,6 +414,8 @@ public class AuthController {
             return ResponseEntity.ok(new JwtResponse(jwt,
                     userDetails.getId(),
                     userDetails.getUsername(),
+                    userDetails.getName(),
+                    userDetails.getPrenom(),
                     userDetails.getEmail(),
                     userDetails.isAuthentificated(),
                     userDetails.enabled(),

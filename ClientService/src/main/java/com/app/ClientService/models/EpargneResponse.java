@@ -2,7 +2,18 @@ package com.app.ClientService.models;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import javax.persistence.*;
+
+@Entity
 public class EpargneResponse {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "epargne_response_seq")
+    @SequenceGenerator(name = "epargne_response_seq", sequenceName = "epargne_response_sequence", allocationSize = 1)
+    private Long id;
 
     @JsonProperty("Annee")
     private int annee;
@@ -22,7 +33,21 @@ public class EpargneResponse {
     @JsonProperty("Gain_Fiscal")
     private double gainFiscal;
 
+    // Relation avec Simulateur
+    @ManyToOne
+    @JoinColumn(name = "simulateur_id")
+    private Simulateur simulateur;
+
     // Getters and Setters
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
     public int getAnnee() {
         return annee;
     }
@@ -69,5 +94,13 @@ public class EpargneResponse {
 
     public void setGainFiscal(double gainFiscal) {
         this.gainFiscal = gainFiscal;
+    }
+
+    public Simulateur getSimulateur() {
+        return simulateur;
+    }
+
+    public void setSimulateur(Simulateur simulateur) {
+        this.simulateur = simulateur;
     }
 }

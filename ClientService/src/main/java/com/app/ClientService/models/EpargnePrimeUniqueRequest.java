@@ -1,6 +1,9 @@
 package com.app.ClientService.models;
 
-public class EpargnePrimeUniqueRequest {
+import javax.persistence.Entity;
+
+@Entity
+public class EpargnePrimeUniqueRequest extends Simulateur {
 
     private int date_Effet;
     private int date_naissance;
@@ -67,6 +70,7 @@ public class EpargnePrimeUniqueRequest {
     }
 
     public EpargnePrimeUniqueRequest() {
+        super ();
 
     }
 

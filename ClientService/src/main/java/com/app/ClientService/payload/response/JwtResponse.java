@@ -7,7 +7,25 @@ public class JwtResponse {
     private String type = "Bearer";
     private Long id;
     private String username;
+    private String name;
+    private String prenom;
     private String email;
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getPrenom() {
+        return prenom;
+    }
+
+    public void setPrenom(String prenom) {
+        this.prenom = prenom;
+    }
 
     private String cin;
 
@@ -52,10 +70,12 @@ public class JwtResponse {
     private List<String> roles;
 
 
-    public JwtResponse(String accessToken, Long id, String username, String email,boolean isAuthentificated,boolean enabled,String cin,String dateNaissance,List<String> roles ) {
+    public JwtResponse(String accessToken, Long id, String username,String name,String prenom, String email,boolean isAuthentificated,boolean enabled,String cin,String dateNaissance,List<String> roles ) {
         this.token = accessToken;
         this.id = id;
         this.username = username;
+        this.name = name;
+        this.prenom = prenom;
         this.email = email;
         this.isAuthentificated = isAuthentificated;
         this.enabled = enabled;
